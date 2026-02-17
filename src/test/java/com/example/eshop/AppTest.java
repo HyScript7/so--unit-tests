@@ -12,6 +12,8 @@ import java.math.BigDecimal;
 import java.util.concurrent.atomic.AtomicReference;
 
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.MethodSource;
 
 import com.example.eshop.cart.Cart;
 import com.example.eshop.order.Order;
@@ -156,9 +158,10 @@ class AppTest {
         assertEquals(OrderStatus.CANCELLED, order.get().getStatus());
     }
 
-    @Test
-    void testProcessPayment_WithPositiveAmount_True() {
-        assertTrue(new CreditCardPaymentProcessor().processPayment(BigDecimal.valueOf(10.0d)));
+    @ParameterizedTest
+    @ValueSource(strings = { 10.0, 20.0, 35.0 })
+    void testProcessPayment_WithPositiveAmount_True(double amount) {
+        assertTrue(new CreditCardPaymentProcessor().processPayment(BigDecimal.valueOf(amount)));
     }
 
     @Test
