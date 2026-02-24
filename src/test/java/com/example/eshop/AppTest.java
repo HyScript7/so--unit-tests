@@ -9,11 +9,13 @@ import static org.junit.jupiter.api.Assertions.assertThrowsExactly;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import java.math.BigDecimal;
+import java.util.List;
 import java.util.concurrent.atomic.AtomicReference;
 
+import com.example.eshop.cart.CartItem;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.params.ParameterizedTest;
-import org.junit.jupiter.params.provider.MethodSource;
+import org.junit.jupiter.params.provider.ValueSource;
 
 import com.example.eshop.cart.Cart;
 import com.example.eshop.order.Order;
@@ -59,6 +61,35 @@ class AppTest {
     @Test
     void testCreateCart_Empty_Success() {
         assertDoesNotThrow(Cart::new);
+        assertTrue(new Cart().getItems().isEmpty());
+    }
+
+    @Test
+    void testAddItemToCart_NegativeQuantity_Fail() {
+        Product product = new PhysicalProduct("Test Physical Product", "An example physical product", BigDecimal.valueOf(20.00d), 10, BigDecimal.valueOf(2.5));
+        Cart cart = new Cart();
+        assertThrowsExactly(IllegalArgumentException.class, () -> cart.addItem(product, -8));
+        assertTrue(cart.getItems().isEmpty());
+    }
+
+    @Test
+    void testModifyItemInCart_ToNegativeQuantity_Fail() {
+        Product product = new PhysicalProduct("Test Physical Product", "An example physical product", BigDecimal.valueOf(20.00d), 10, BigDecimal.valueOf(2.5));
+        Cart cart = new Cart();
+        assertDoesNotThrow(() -> cart.addItem(product, 2));
+        assertFalse(cart.getItems().isEmpty());
+        assertThrowsExactly(IllegalArgumentException.class, () -> cart.getItems().getFirst().setQuantity(-8));
+        assertFalse(cart.getItems().isEmpty());
+    }
+
+    @Test
+    void testAddItemToCart_Duplicate_Success() {
+        Product product = new PhysicalProduct("Test Physical Product", "An example physical product", BigDecimal.valueOf(20.00d), 10, BigDecimal.valueOf(2.5));
+        Cart cart = new Cart();
+        assertDoesNotThrow(() -> cart.addItem(product, 2));
+        assertDoesNotThrow(() -> cart.addItem(product, 4));
+        assertFalse(cart.getItems().isEmpty());
+        assertEquals(2 + 4, cart.getItems().getFirst().getQuantity());
     }
 
     @Test
@@ -66,6 +97,9 @@ class AppTest {
             Product product = new PhysicalProduct("Test Physical Product", "An example physical product", BigDecimal.valueOf(20.00d), 10, BigDecimal.valueOf(2.5));
             Cart cart = new Cart();
             assertDoesNotThrow(() -> cart.addItem(product, 2));
+            assertFalse(cart.getItems().isEmpty());
+            assertEquals(product, cart.getItems().getFirst().getProduct());
+            assertEquals(2, cart.getItems().getFirst().getQuantity());
     }
 
     @Test
@@ -74,6 +108,7 @@ class AppTest {
             Cart cart = new Cart();
             cart.addItem(product, 2);
             assertDoesNotThrow(() -> cart.removeItem(product));
+            assertTrue(cart.getItems().isEmpty());
     }
 
     @Test
@@ -81,6 +116,9 @@ class AppTest {
             Product product = new DigitalProduct("Test Digital Product", "An example digital product", BigDecimal.valueOf(10.00d), "http://example.com/download");
             Cart cart = new Cart();
             assertDoesNotThrow(() -> cart.addItem(product, 2));
+            assertFalse(cart.getItems().isEmpty());
+            assertEquals(product, cart.getItems().getFirst().getProduct());
+            assertEquals(2, cart.getItems().getFirst().getQuantity());
     }
 
     @Test
@@ -89,6 +127,7 @@ class AppTest {
             Cart cart = new Cart();
             cart.addItem(product, 2);
             assertDoesNotThrow(() -> cart.removeItem(product));
+            assertTrue(cart.getItems().isEmpty());
     }
 
     @Test
@@ -120,6 +159,27 @@ class AppTest {
     }
 
     @Test
+    void testPlaceOrder_WithMultipleProductsContainsAll_Success() {
+        Product productPhysical = new PhysicalProduct("Test Physical Product", "An example physical product", BigDecimal.valueOf(20.00d), 10, BigDecimal.valueOf(2.5));
+        Product productDigital = new DigitalProduct("Test Digital Product", "An example digital product", BigDecimal.valueOf(10.00d), "http://example.com/download");
+        Cart cart = new Cart();
+        // Order matters!
+        cart.addItem(productPhysical, 2);
+        cart.addItem(productDigital, 1);
+
+        OrderService orderService = new OrderService(new CreditCardPaymentProcessor());
+        AtomicReference<Order> order = new AtomicReference<>();
+        assertDoesNotThrow(() -> order.set(orderService.placeOrder(cart)));
+        assertNotNull(order.get());
+        List<Product> cartProducts = order.get().getItems().stream().map(CartItem::getProduct).toList();
+        List<Integer> cartQuantities = order.get().getItems().stream().map(CartItem::getQuantity).toList();
+        assertEquals(cartProducts.get(0), productPhysical);
+        assertEquals(cartProducts.get(1), productDigital);
+        assertEquals(2, (int) cartQuantities.get(0));
+        assertEquals(1, (int) cartQuantities.get(1));
+    }
+
+    @Test
     void testPlaceOrder_WithValidCartAndValidPayment_StatusPaid() {
         Product product = new PhysicalProduct("Test Physical Product", "An example physical product", BigDecimal.valueOf(20.00d), 10, BigDecimal.valueOf(2.5));
         Cart cart = new Cart();
@@ -130,6 +190,19 @@ class AppTest {
         assertDoesNotThrow(() -> order.set(orderService.placeOrder(cart)));
         assertNotNull(order.get());
         assertEquals(OrderStatus.PAID, order.get().getStatus());
+    }
+
+    @Test
+    void testPlaceOrder_HasUUID_Success() {
+        Product product = new PhysicalProduct("Test Physical Product", "An example physical product", BigDecimal.valueOf(20.00d), 10, BigDecimal.valueOf(2.5));
+        Cart cart = new Cart();
+        cart.addItem(product, 2);
+
+        OrderService orderService = new OrderService(new CreditCardPaymentProcessor());
+        AtomicReference<Order> order = new AtomicReference<>();
+        assertDoesNotThrow(() -> order.set(orderService.placeOrder(cart)));
+        assertNotNull(order.get());
+        assertNotNull(order.get().getId());
     }
 
     @Test
@@ -159,13 +232,13 @@ class AppTest {
     }
 
     @ParameterizedTest
-    @ValueSource(strings = { 10.0, 20.0, 35.0 })
+    @ValueSource(doubles = { 10.0, 20.0, 35.0 })
     void testProcessPayment_WithPositiveAmount_True(double amount) {
         assertTrue(new CreditCardPaymentProcessor().processPayment(BigDecimal.valueOf(amount)));
     }
 
     @Test
     void testProcessPayment_WithNegativeAmount_False() {
-        assertFalse(new CreditCardPaymentProcessor().processPayment(BigDecimal.valueOf(-10.0d)));
+        assertThrowsExactly(IllegalArgumentException.class, () -> new CreditCardPaymentProcessor().processPayment(BigDecimal.valueOf(-10.0d)));
     }
 }
